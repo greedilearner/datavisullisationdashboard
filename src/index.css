@@ -1,0 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "Noto Sans Devanagari", ui-sans-serif, system-ui, sans-serif;
+}
+/* Legacy Hindi (Kruti Dev) */
+@font-face {
+  font-family: 'KrutiDev';
+  src: url('/fonts/Krutidev-010.ttf') format('truetype');
+}
+
+/* Modern Hindi (Unicode/Kokila) */
+@font-face {
+  font-family: 'Kokila';
+  src: url('/fonts/Kokila.ttf') format('truetype');
+}
+
+/* Class for Kruti Dev cells */
+.font-kruti {
+  font-family: 'KrutiDev', sans-serif !important;
+  font-size: 1.25rem;
+}
+
+/* Class for Kokila (Unicode) cells */
+.font-kokila {
+  font-family: 'Kokila', "Arial Unicode MS", sans-serif !important;
+  font-size: 1.2rem;
+  line-height: 1.5;
+}

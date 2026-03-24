@@ -1,0 +1,5 @@
+{
+  "name": "Excel Data Dashboard",
+  "description": "A dashboard for viewing and entering data into simulated Excel files with backend-verified authentication.",
+  "requestFramePermissions": []
+}
