@@ -126,7 +126,7 @@ const Sidebar = ({
                    {" "}
           <h1 className="text-xl font-bold tracking-tight flex items-center gap-2">
                         <FileSpreadsheet className="text-blue-600" />           
-            ExcelDash          {" "}
+            Brij's BRC          {" "}
           </h1>
                    {" "}
           <button
@@ -204,7 +204,7 @@ const Homepage = () => {
     >
            {" "}
       <h2 className="text-3xl md:text-4xl font-bold mb-6 tracking-tight">
-        Dashboard
+        Brij's BRC
       </h2>
                  {" "}
       <div className="grid gap-6 md:gap-8">
@@ -212,42 +212,19 @@ const Homepage = () => {
         <section className="bg-white border border-zinc-200 rounded-2xl md:rounded-3xl p-6 md:p-8 shadow-sm">
                    {" "}
           <h3 className="text-lg md:text-xl font-semibold mb-4 text-blue-600">
-            Welcome to your Data Hub
+            Welcome to Brij's BRC
           </h3>
                    {" "}
           <p className="text-sm md:text-base text-zinc-600 leading-relaxed mb-6">
                         This dashboard provides a centralized interface for
-            managing your organizational data.             You can view existing
+            managing your organizational data.You can view existing
             datasets, perform advanced searches across columns, and enter new  
-                      records with real-time validation. Our system ensures data
-            integrity while providing             a seamless user experience for
+             records with real-time validation. Our system ensures data
+            integrity while providing a seamless user experience for
             spreadsheet management.          {" "}
           </p>
                    {" "}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                       {" "}
-            {[
-              { label: "Total Files", value: "12" },
-              { label: "Records Viewed", value: "1,240" },
-              { label: "Entries Today", value: "45" },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className="bg-blue-50 p-4 rounded-2xl border border-blue-100"
-              >
-                               {" "}
-                <p className="text-[10px] md:text-xs text-zinc-500 uppercase tracking-wider mb-1">
-                  {stat.label}
-                </p>
-                               {" "}
-                <p className="text-xl md:text-2xl font-bold text-zinc-900">
-                  {stat.value}
-                </p>
-                             {" "}
-              </div>
-            ))}
-                     {" "}
-          </div>
+          
                  {" "}
         </section>
                {" "}
@@ -264,58 +241,22 @@ const Homepage = () => {
                            {" "}
               <div className="flex items-center gap-3">
                                 <Mail size={16} />               {" "}
-                <span className="truncate">support@exceldash.com</span>         
+                <span className="truncate">brij1970bs@gmail.com</span>         
                    {" "}
               </div>
                            {" "}
               <div className="flex items-center gap-3">
                                 <Phone size={16} />               {" "}
-                <span>+1 (555) 012-3456</span>             {" "}
+                <span>+91 7380958595</span>             {" "}
               </div>
                            {" "}
-              <div className="flex items-center gap-3">
-                                <MapPin size={16} />               {" "}
-                <span className="truncate">
-                  123 Data Way, Silicon Valley, CA
-                </span>
-                             {" "}
-              </div>
+              
                          {" "}
             </div>
                      {" "}
           </div>
                              {" "}
-          <div className="bg-white border border-zinc-200 rounded-2xl md:rounded-3xl p-6 md:p-8 shadow-sm">
-                       {" "}
-            <h3 className="text-lg md:text-xl font-semibold mb-4">
-              Quick Links
-            </h3>
-                       {" "}
-            <ul className="space-y-3">
-                           {" "}
-              {[
-                "User Documentation",
-                "API Reference",
-                "System Status",
-                "Data Privacy Policy",
-              ].map((link) => (
-                <li key={link}>
-                                   {" "}
-                  <a
-                    href="#"
-                    className="text-blue-600 hover:underline flex items-center gap-2 text-sm"
-                  >
-                                       {" "}
-                    <ChevronDown size={14} className="-rotate-90" />           
-                            {link}                 {" "}
-                  </a>
-                                 {" "}
-                </li>
-              ))}
-                         {" "}
-            </ul>
-                     {" "}
-          </div>
+          
                  {" "}
         </section>
              {" "}
@@ -343,6 +284,7 @@ const DataView = () => {
     "auto" | "unicode" | "krutidev" | "krishna"
   >("auto");
   const [deletingFile, setDeletingFile] = useState<string | null>(null);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
 
   const fetchFiles = async () => {
     try {
@@ -373,13 +315,17 @@ const DataView = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch(`/api/data/${encodeURIComponent(filename.trim())}`);
+      const res = await fetch(
+        `/api/data/${encodeURIComponent(filename.trim())}`,
+      );
       const rows = await res.json();
       if (!res.ok) {
         throw new Error(rows?.message || "Failed to load file data");
       }
       // API returns plain row objects; DataView expects [{ data: row }]
-      const normalized = Array.isArray(rows) ? rows.map((row) => ({ data: row })) : [];
+      const normalized = Array.isArray(rows)
+        ? rows.map((row) => ({ data: row }))
+        : [];
       setTableData(normalized);
     } catch (err) {
       console.error("Fetch Error:", err);
@@ -399,6 +345,7 @@ const DataView = () => {
     setCustomFromDate("");
     setCustomToDate("");
     setTextEncoding("auto");
+    setSelectedSheet("");
   };
 
   const handleDeleteFile = async (filename: string) => {
@@ -467,7 +414,17 @@ const DataView = () => {
   const normalizedRows = tableData
     .map((row) => row?.data)
     .filter((row) => row && typeof row === "object");
-  const columns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0]) : [];
+    
+  const sheetsList = Array.from(new Set(normalizedRows.map((r: any) => r.__sheet__).filter(Boolean))) as string[];
+  
+  useEffect(() => {
+    if (sheetsList.length > 0 && !sheetsList.includes(selectedSheet)) {
+      setSelectedSheet(sheetsList[0] as string);
+    }
+  }, [sheetsList, selectedSheet]);
+
+  const allColumns = normalizedRows.length > 0 ? Object.keys(normalizedRows[0]) : [];
+  const columns = allColumns.filter(c => c !== "__sheet__");
 
   const parsePossibleDate = (value: unknown): Date | null => {
     if (value == null) return null;
@@ -476,7 +433,9 @@ const DataView = () => {
     // Excel serial date support (common when sheet stores dates as numbers).
     if (typeof value === "number" && value > 20000 && value < 100000) {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-      const parsed = new Date(excelEpoch.getTime() + value * 24 * 60 * 60 * 1000);
+      const parsed = new Date(
+        excelEpoch.getTime() + value * 24 * 60 * 60 * 1000,
+      );
       return isNaN(parsed.getTime()) ? null : parsed;
     }
 
@@ -511,7 +470,11 @@ const DataView = () => {
     // yyyy/mm/dd or yyyy-mm-dd
     const ymd = text.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
     if (ymd) {
-      const parsed = new Date(Number(ymd[1]), Number(ymd[2]) - 1, Number(ymd[3]));
+      const parsed = new Date(
+        Number(ymd[1]),
+        Number(ymd[2]) - 1,
+        Number(ymd[3]),
+      );
       return isNaN(parsed.getTime()) ? null : parsed;
     }
 
@@ -539,28 +502,33 @@ const DataView = () => {
     if (dateColumn && dateColumns.includes(dateColumn)) return;
 
     const preferred =
-      dateColumns.find((col) => /दिनांक|date|dt|created|invoice date/i.test(col)) ??
-      dateColumns[0];
+      dateColumns.find((col) =>
+        /दिनांक|date|dt|created|invoice date/i.test(col),
+      ) ?? dateColumns[0];
     setDateColumn(preferred);
   }, [selectedFile, dateColumns, dateColumn]);
 
   const allTagValues: string[] =
     selectedColumn && normalizedRows.length
-      ? Array.from(
+      ? (Array.from(
           new Set(
             normalizedRows
               .map((row) => String(row[selectedColumn] ?? "").trim())
               .filter((value): value is string => value.length > 0),
           ),
-        ).slice(0, 200) as string[]
+        ).slice(0, 200) as string[])
       : [];
 
   const getDateRangeStart = () => {
     const now = new Date();
-    if (dateRange === "1m") return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-    if (dateRange === "6m") return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
-    if (dateRange === "1y") return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
-    if (dateRange === "2y") return new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+    if (dateRange === "1m")
+      return new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    if (dateRange === "6m")
+      return new Date(now.getFullYear(), now.getMonth() - 6, now.getDate());
+    if (dateRange === "1y")
+      return new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    if (dateRange === "2y")
+      return new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
     return null;
   };
 
@@ -569,7 +537,9 @@ const DataView = () => {
     if (/[\u0900-\u097F]/.test(text)) return false; // already Unicode Hindi
     const hasKrutiMarkers = /[;'\[\]\\`~^]/.test(text);
     const hasExtendedAscii = /[\u00A1-\u00FF]/.test(text);
-    const hasTypicalClusters = /\b(vk|dks|esjk|gS|gsa|mldk|;g|jks)\b/i.test(text);
+    const hasTypicalClusters = /\b(vk|dks|esjk|gS|gsa|mldk|;g|jks)\b/i.test(
+      text,
+    );
     return hasKrutiMarkers || hasExtendedAscii || hasTypicalClusters;
   };
 
@@ -577,6 +547,10 @@ const DataView = () => {
     if (value == null) return "-";
     const text = String(value);
     if (!text.trim()) return "-";
+
+    // Stop and return immediately if the text already contains actual Hindi Unicode characters
+    if (/[\u0900-\u097F]/.test(text)) return text;
+    if (["crime_category", "law_hint", "section_numbers", "धारा_साफ", "id"].includes(text)) return text;
 
     if (textEncoding === "unicode") return text;
     if (textEncoding === "krutidev" || textEncoding === "krishna") {
@@ -598,6 +572,8 @@ const DataView = () => {
   const normalizeHeader = (value: unknown) => normalizeText(value);
 
   const filteredRows = normalizedRows.filter((row) => {
+    if (selectedSheet && row.__sheet__ && row.__sheet__ !== selectedSheet) return false;
+
     if (searchQuery) {
       const matchesText = JSON.stringify(row)
         .toLowerCase()
@@ -652,7 +628,9 @@ const DataView = () => {
               <ArrowLeft size={24} />
             </button>
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">{selectedFile}</h2>
+              <h2 className="text-2xl font-bold text-gray-800">
+                {selectedFile}
+              </h2>
               <p className="text-sm text-gray-500">
                 Showing {filteredRows.length} of {normalizedRows.length} rows
               </p>
@@ -668,6 +646,29 @@ const DataView = () => {
           </div>
 
           <div className="bg-white border border-zinc-200 rounded-2xl p-4 md:p-6 shadow-sm space-y-4">
+            {sheetsList.length > 1 && (
+              <div className="flex flex-wrap gap-2 mb-2 p-1 bg-zinc-100/50 rounded-xl w-fit">
+                {sheetsList.map(sheet => (
+                  <button
+                    key={sheet}
+                    onClick={() => {
+                      setSelectedSheet(sheet);
+                      setSelectedColumn("");
+                      setSelectedTags([]);
+                    }}
+                    className={cn(
+                      "px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200",
+                      selectedSheet === sheet
+                        ? "bg-white text-blue-600 shadow-sm border border-zinc-200/50"
+                        : "text-zinc-600 hover:text-blue-600 hover:bg-zinc-100"
+                    )}
+                  >
+                    {sheet}
+                  </button>
+                ))}
+              </div>
+            )}
+            
             <div className="relative">
               <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
@@ -794,7 +795,7 @@ const DataView = () => {
                             : "bg-blue-50 border-blue-100 text-blue-700 hover:bg-blue-100",
                         )}
                       >
-                        {tag}
+                        {normalizeText(tag)}
                       </button>
                     );
                   })}
@@ -804,10 +805,10 @@ const DataView = () => {
           </div>
 
           {/* THE TABLE */}
-          <div className="bg-white border rounded-2xl overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
+          <div className="bg-white border rounded-2xl overflow-hidden shadow-sm flex flex-col h-[65vh] min-h-[400px]">
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-left border-collapse sticky-header relative">
+                <thead className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b sticky top-0 z-10 shadow-sm">
                   <tr>
                     {columns.length > 0 &&
                       columns.map((header) => (
@@ -844,18 +845,22 @@ const DataView = () => {
               </table>
             </div>
             {isLoading && (
-              <div className="p-20 text-center text-gray-500">Loading data...</div>
+              <div className="p-20 text-center text-gray-500">
+                Loading data...
+              </div>
             )}
             {!isLoading && normalizedRows.length === 0 && (
               <div className="p-20 text-center text-gray-500">
                 No data found in this file or still processing...
               </div>
             )}
-            {!isLoading && normalizedRows.length > 0 && filteredRows.length === 0 && (
-              <div className="p-20 text-center text-gray-500">
-                No rows match your current filters.
-              </div>
-            )}
+            {!isLoading &&
+              normalizedRows.length > 0 &&
+              filteredRows.length === 0 && (
+                <div className="p-20 text-center text-gray-500">
+                  No rows match your current filters.
+                </div>
+              )}
           </div>
         </div>
       ) : (
@@ -925,10 +930,15 @@ const DataEntry = () => {
     const text = String(value);
     if (!text.trim()) return "-";
     if (/[\u0900-\u097F]/.test(text)) return text;
+    if (["crime_category", "law_hint", "section_numbers", "धारा_साफ", "id"].includes(text)) return text;
+
+    // Auto-detect markers OR if the user explicitly selected Kruti fontst hasExtendedAscii = /[\u00A1-\u00FF]/.test(text);
     const hasKrutiMarkers = /[;'\[\]\\`~^]/.test(text);
     const hasExtendedAscii = /[\u00A1-\u00FF]/.test(text);
-    const hasTypicalClusters = /\b(vk|dks|esjk|gS|gsa|mldk|;g|jks)\b/i.test(text);
-    if (hasKrutiMarkers || hasExtendedAscii || hasTypicalClusters) {
+    const hasTypicalClusters = /\b(vk|dks|esjk|gS|gsa|mldk|;g|jks)\b/i.test(
+      text,
+    );
+    if (hasKrutiMarkers || hasExtendedAscii || hasTypicalClusters || entryFont === "kruti") {
       try {
         return krutiDevToUnicode(text);
       } catch {
@@ -957,7 +967,7 @@ const DataEntry = () => {
       if (Array.isArray(json)) {
         // Get columns from the first row, or default to empty if file is empty
         const cols =
-          json.length > 0 ? Object.keys(json[0]).filter((c) => c !== "id") : [];
+          json.length > 0 ? Object.keys(json[0]).filter((c) => !["id", "__sheet__", "crime_category", "law_hint", "section_numbers", "धारा_साफ"].includes(c)) : [];
         setColumns(cols);
         setSelectedFile(filename);
         setFormData(cols.reduce((acc, col) => ({ ...acc, [col]: "" }), {}));
@@ -1216,7 +1226,7 @@ const DataEntry = () => {
 };
 
 const AuthPage = ({ onLogin }: { onLogin: (user: any) => void }) => {
-  const [email, setEmail] = useState("aryanss1417@gmail.com");
+  const [email, setEmail] = useState("brij1970bs@gmail.com");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -1283,7 +1293,7 @@ const AuthPage = ({ onLogin }: { onLogin: (user: any) => void }) => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-zinc-50 border border-zinc-200 rounded-2xl pl-12 pr-4 py-4 focus:outline-none focus:border-blue-600 transition-colors text-zinc-900"
-                placeholder="aryanss1417@gmail.com"
+                placeholder="brij1970bs@gmail.com"
               />
             </div>
           </div>
@@ -1321,7 +1331,6 @@ const AuthPage = ({ onLogin }: { onLogin: (user: any) => void }) => {
             {isLoading ? "Verifying..." : "Sign In"}
           </button>
         </form>
-
       </motion.div>
     </div>
   );
@@ -1352,7 +1361,7 @@ export default function App() {
         <header className="lg:hidden bg-white border-b border-zinc-200 p-4 flex items-center justify-between">
           <h1 className="text-lg font-bold tracking-tight flex items-center gap-2">
             <FileSpreadsheet className="text-blue-600" size={20} />
-            ExcelDash
+            Brij's BRC
           </h1>
           <button
             onClick={() => setIsSidebarOpen(true)}

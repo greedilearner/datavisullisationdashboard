@@ -24,6 +24,7 @@ import {
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createClient } from "@supabase/supabase-js";
 import { createServer as createViteServer } from "vite";
+import krutiDevToUnicode from "@anthro-ai/krutidev-unicode";
 
 async function startServer() {
   const app = express();
@@ -54,14 +55,9 @@ const s3 = new S3Client({
     try {
       const email = String(req.body?.email || "").trim().toLowerCase();
       const password = String(req.body?.password || "");
-      const allowedEmail = (process.env.AUTH_ALLOWED_EMAIL || "aryanss1417@gmail.com").toLowerCase();
 
       if (!email || !password) {
         return res.status(400).json({ success: false, message: "Email and password are required." });
-      }
-
-      if (email !== allowedEmail) {
-        return res.status(401).json({ success: false, message: "Invalid credentials" });
       }
 
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -131,38 +127,125 @@ const s3 = new S3Client({
     }
   });
 
-  async function processExcelFile(filename: string) {
-  try {
-    // A. Get file from R2
-    const getCommand = new GetObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      Key: filename,
-    });
-    const response = await s3.send(getCommand);
-    const bodyContents = await response.Body?.transformToByteArray();
-    
-    // B. Parse Excel
-    const workbook = XLSX.read(bodyContents, { type: 'array' });
-    const sheetName = workbook.SheetNames[0];
-    const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+  // --- PYTHON CATEGORIZATION PORT ---
+  const CATEGORY_SECTION_MAP: Record<string, number[]> = {
+    "चोरी": [378, 379, 380, 381, 382],
+    "लूट": [390, 392, 393, 394, 397, 398],
+    "डकैती": [395, 396, 399, 400, 402],
+    "हत्या/हत्या का प्रयास": [299, 300, 302, 304, 305, 306, 307, 308],
+    "अपहरण/छलपूर्वक ले जाना": [415, 416, 417, 418, 419, 420],
+    "कूटकरण/जालसाजी": [463, 465, 466, 467, 468, 469, 471, 474],
+    "महिला अपराध": [354, 375, 376],
+    "आबकारी अपराध": [60, 61, 63, 64, 67, 68, 70, 71],
+  };
 
-    // C. Format for Supabase
-    const rowsToInsert = rawData.map((row: any) => ({
-      filename: filename,
-      data: row, // Storing the whole row as a JSONB object
-      created_at: new Date(),
-    }));
-
-    // D. Insert into Supabase
-    const { error } = await supabase.from('excel_rows').insert(rowsToInsert);
-    if (error) throw error;
-    
-    console.log(`✅ Finished processing ${filename}. ${rowsToInsert.length} rows saved.`);
-  } catch (error) {
-    console.error("❌ Processing failed:", error);
+  function normalizeDharaText(value: any): string {
+    if (value == null) return "";
+    let text = String(value).trim();
+    const devanagariDigits: Record<string, string> = {
+      "०": "0", "१": "1", "२": "2", "३": "3", "४": "4",
+      "५": "5", "६": "6", "७": "7", "८": "8", "९": "9"
+    };
+    text = text.replace(/[०-९]/g, d => devanagariDigits[d] || d);
+    text = text.replace(/द्धध्/g, " ").replace(/ध्/g, " ");
+    text = text.replace(/\(\s*\d+\s*\)/g, " ");
+    text = text.replace(/[\u200b\u200c\u200d]/g, "");
+    text = text.replace(/[^0-9A-Za-z\u0900-\u097F,\s\/]+/g, " ");
+    text = text.replace(/\s+/g, " ").trim();
+    return text;
   }
-}
 
+  function extractSectionsAndLaws(cleanText: string) {
+    const numbers = new Set<number>();
+    const matches = cleanText.match(/\b\d{1,4}\b/g) || [];
+    matches.forEach(m => numbers.add(parseInt(m, 10)));
+    
+    const laws = new Set<string>();
+    const low = cleanText.toLowerCase();
+    if (cleanText.includes("भादवि") || low.includes("ipc")) laws.add("भादवि");
+    if (cleanText.includes("बीएनएस") || low.includes("bns")) laws.add("बीएनएस");
+    
+    return { numbers, laws };
+  }
+
+  function detectCategory(sections: Set<number>, laws: Set<string>): string {
+    if (sections.size === 0 && laws.size === 0) return "अज्ञात";
+    
+    const matches: string[] = [];
+    for (const [category, sectionArr] of Object.entries(CATEGORY_SECTION_MAP)) {
+      if (sectionArr.some(sec => sections.has(sec))) {
+        matches.push(category);
+      }
+    }
+    
+    if (matches.length === 0 && laws.has("बीएनएस")) return "बीएनएस (अवर्गीकृत)";
+    if (matches.length === 0 && laws.has("भादवि")) return "भादवि (अवर्गीकृत)";
+    if (matches.length === 0) return "अज्ञात";
+    
+    matches.sort();
+    return Array.from(new Set(matches)).join(", ");
+  }
+  // --- END OF PYTHON PORT ---
+
+  async function processExcelFile(filename: string) {
+    try {
+      // A. Get file from R2
+      const getCommand = new GetObjectCommand({
+        Bucket: process.env.R2_BUCKET_NAME,
+        Key: filename,
+      });
+      const response = await s3.send(getCommand);
+      const bodyContents = await response.Body?.transformToByteArray();
+      
+      // B. Parse Excel and Categorize
+      const workbook = XLSX.read(bodyContents, { type: 'array' });
+      const rowsToInsert: any[] = [];
+
+      for (const sheetName of workbook.SheetNames) {
+        const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        rawData.forEach((row: any) => {
+          let dharaVal = undefined;
+          for (const k of Object.keys(row)) {
+             // Handle any trailing/leading spaces in column definitions and Kruti Dev garbage
+             let uniText = k;
+             try { uniText = krutiDevToUnicode(k); } catch (e) {}
+             
+             if (k.trim() === "धारा" || k.includes("धारा") || uniText.trim() === "धारा" || uniText.includes("धारा")) {
+                dharaVal = row[k];
+                break;
+             }
+          }
+
+          if (dharaVal !== undefined) {
+            const cleanText = normalizeDharaText(dharaVal);
+            const { numbers, laws } = extractSectionsAndLaws(cleanText);
+            row["धारा_साफ"] = cleanText;
+            row["section_numbers"] = Array.from(numbers).sort((a,b)=>a-b).join(",");
+            row["law_hint"] = Array.from(laws).sort().join(",");
+            row["crime_category"] = detectCategory(numbers, laws);
+          }
+          
+          rowsToInsert.push({
+            filename: filename,
+            data: { __sheet__: sheetName, ...row }, // Storing sheet name inside data payload
+            created_at: new Date(),
+          });
+        });
+      }
+
+      // C. Insert into Supabase in chunks of 500 to avoid payload size limit
+      const chunkSize = 500;
+      for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
+        const chunk = rowsToInsert.slice(i, i + chunkSize);
+        const { error } = await supabase.from('excel_rows').insert(chunk);
+        if (error) throw error;
+      }
+      
+      console.log(`✅ Finished processing ${filename}. ${rowsToInsert.length} rows saved.`);
+    } catch (error) {
+      console.error("❌ Processing failed:", error);
+    }
+  }
   // --- 2. DATA RETRIEVAL ---
   app.get("/api/data", async (req, res) => {
     try {
@@ -190,7 +273,7 @@ const s3 = new S3Client({
         .from("excel_rows")
         .select("data")
         .eq("filename", filename)
-        .limit(500);
+        .limit(50000);
 
       if (error) throw error;
       const rows = (data || []).map((row: any) => row.data).filter(Boolean);
@@ -233,6 +316,25 @@ const s3 = new S3Client({
 
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
         return res.status(400).json({ message: "Invalid payload. Expected an object row." });
+      }
+
+      // Auto-categorize if "धारा" is supplied in the DataEntry form
+      let dharaVal = undefined;
+      for (const k of Object.keys(payload)) {
+          let uniText = k;
+          try { uniText = krutiDevToUnicode(k); } catch (e) {}
+          if (k.trim() === "धारा" || k.includes("धारा") || uniText.trim() === "धारा" || uniText.includes("धारा")) {
+             dharaVal = payload[k];
+             break;
+          }
+      }
+      if (dharaVal !== undefined && String(dharaVal).trim().length > 0) {
+         const cleanText = normalizeDharaText(dharaVal);
+         const { numbers, laws } = extractSectionsAndLaws(cleanText);
+         payload["धारा_साफ"] = cleanText;
+         payload["section_numbers"] = Array.from(numbers).sort((a,b)=>a-b).join(",");
+         payload["law_hint"] = Array.from(laws).sort().join(",");
+         payload["crime_category"] = detectCategory(numbers, laws);
       }
 
       const { error } = await supabase.from("excel_rows").insert({
