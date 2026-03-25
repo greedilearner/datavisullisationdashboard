@@ -55,7 +55,7 @@ CATEGORY_SECTION_MAP = {
     "आयुध अधि0":{25,27,29},
     "एनडीपीएस एक्ट":{8.20,21,22,23,25,27},
 }
-CATEGORY_SECTION_MAP2 = {
+CATEGORY_SECTION_MAPP = {
     "चोरी": {303,304,305,306,307},
     "लूट": {309310,311,312,313,314,317},
     "डकैती": {312,313,314,315,316,318},
@@ -73,7 +73,7 @@ def detect_category(sections: Set[int], laws: Set[str]) -> str:
 
     matches: List[str] = []
     if "बीएनएस" in laws :
-        for category, section_set in CATEGORY_SECTION_MAP2.items():
+        for category, section_set in CATEGORY_SECTION_MAPP.items():
             if sections & section_set:
                  matches.append(category)
     elif "भादवि" in laws:
