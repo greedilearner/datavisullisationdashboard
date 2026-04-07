@@ -4,22 +4,10 @@
 @theme {
   --font-sans: "Inter", "Noto Sans Devanagari", ui-sans-serif, system-ui, sans-serif;
 }
-/* Legacy Hindi (Kruti Dev) */
-@font-face {
-  font-family: 'KrutiDev';
-  src: url('/fonts/Krutidev-010.ttf') format('truetype');
-}
-
 /* Modern Hindi (Unicode/Kokila) */
 @font-face {
   font-family: 'Kokila';
   src: url('/fonts/Kokila.ttf') format('truetype');
-}
-
-/* Class for Kruti Dev cells */
-.font-kruti {
-  font-family: 'KrutiDev', sans-serif !important;
-  font-size: 1.25rem;
 }
 
 /* Class for Kokila (Unicode) cells */

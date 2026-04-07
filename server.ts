@@ -1,30 +1,31 @@
 import dotenv from "dotenv";
 // 1. THIS MUST BE LINE 1
-dotenv.config(); 
+dotenv.config();
 import https from 'https';
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 // This tells Node to use a more modern, compatible SSL/TLS agent
 const agent = new https.Agent({
   keepAlive: true,
-  rejectUnauthorized: true, 
+  rejectUnauthorized: true,
   minVersion: 'TLSv1.2'
 });
 import { NodeHttpHandler } from "@smithy/node-http-handler";
 import express from "express";
 import path from "path";
 import * as XLSX from 'xlsx';
-import { 
-  S3Client, 
-  ListObjectsV2Command, 
+import {
+  S3Client,
+  ListObjectsV2Command,
   DeleteObjectCommand,
-  CreateMultipartUploadCommand, 
-  UploadPartCommand, 
-  CompleteMultipartUploadCommand 
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createClient } from "@supabase/supabase-js";
 import { createServer as createViteServer } from "vite";
-import krutiDevToUnicode from "@anthro-ai/krutidev-unicode";
+
+const processingJobs: Record<string, { status: string; total: number; done: number; error?: string }> = {};
 
 async function startServer() {
   const app = express();
@@ -32,20 +33,20 @@ async function startServer() {
   app.use(express.json());
 
   // 2. Initialize Clients INSIDE the function so they wait for dotenv
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-  },
-  // This explicitly tells the SDK how to handle the connection in Node.js
-  requestHandler: new NodeHttpHandler({
-    connectionTimeout: 5000,
-    socketTimeout: 5000,
-  }),
-  forcePathStyle: true,
-});
+  const s3 = new S3Client({
+    region: "auto",
+    endpoint: `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
+    },
+    // This explicitly tells the SDK how to handle the connection in Node.js
+    requestHandler: new NodeHttpHandler({
+      connectionTimeout: 5000,
+      socketTimeout: 5000,
+    }),
+    forcePathStyle: true,
+  });
   const supabase = createClient(
     process.env.VITE_SUPABASE_URL!,
     process.env.VITE_SUPABASE_ANON_KEY!
@@ -118,7 +119,8 @@ const s3 = new S3Client({
         });
         await s3.send(command);
         console.log(`📂 Starting processing for: ${key}`);
-      processExcelFile(key); // Run this in background
+        processingJobs[key] = { status: "processing", total: 0, done: 0 };
+        processExcelFile(key); // Run this in background
         return res.json({ location: key });
       }
     } catch (err: any) {
@@ -139,6 +141,16 @@ const s3 = new S3Client({
     "आबकारी अपराध": [60, 61, 63, 64, 67, 68, 70, 71],
   };
 
+  const CATEGORY_SECTION_MAP2: Record<string, number[]> = {
+    "चोरी": [303, 304, 305, 306, 307],
+    "लूट": [309, 310, 311, 312, 313, 314, 317],
+    "डकैती": [312, 313, 314, 315, 316, 318],
+    "हत्या/हत्या का प्रयास": [101, 102, 103, 104, 106, 80, 108, 109, 110],
+    "धोखाधड़ी": [318, 319],
+    "कूटकरण/जालसाजी": [335, 336, 337, 338, 339, 340, 341],
+    "महिला अपराध": [74, 75, 76, 77, 78, 63, 64, 66, 68, 70, 71],
+  };
+
   function normalizeDharaText(value: any): string {
     if (value == null) return "";
     let text = String(value).trim();
@@ -155,40 +167,68 @@ const s3 = new S3Client({
     return text;
   }
 
-  function extractSectionsAndLaws(cleanText: string) {
-    const numbers = new Set<number>();
-    const matches = cleanText.match(/\b\d{1,4}\b/g) || [];
-    matches.forEach(m => numbers.add(parseInt(m, 10)));
-    
-    const laws = new Set<string>();
-    const low = cleanText.toLowerCase();
-    if (cleanText.includes("भादवि") || low.includes("ipc")) laws.add("भादवि");
-    if (cleanText.includes("बीएनएस") || low.includes("bns")) laws.add("बीएनएस");
-    
-    return { numbers, laws };
-  }
 
   function detectCategory(sections: Set<number>, laws: Set<string>): string {
     if (sections.size === 0 && laws.size === 0) return "अज्ञात";
-    
+
     const matches: string[] = [];
-    for (const [category, sectionArr] of Object.entries(CATEGORY_SECTION_MAP)) {
-      if (sectionArr.some(sec => sections.has(sec))) {
-        matches.push(category);
+    if (laws.has("बीएनएस") || laws.has("भारतीय न्याय संहिता बी एन एस")) {
+      for (const [category, sectionArr] of Object.entries(CATEGORY_SECTION_MAP2)) {
+        if (sectionArr.some(sec => sections.has(sec))) matches.push(category);
+      }
+    } else if (laws.has("भादवि") || laws.has("भारतीय दंड संहिता") || laws.has("भा दं सं")) {
+      for (const [category, sectionArr] of Object.entries(CATEGORY_SECTION_MAP)) {
+        if (sectionArr.some(sec => sections.has(sec))) matches.push(category);
       }
     }
-    
+
     if (matches.length === 0 && laws.has("बीएनएस")) return "बीएनएस (अवर्गीकृत)";
     if (matches.length === 0 && laws.has("भादवि")) return "भादवि (अवर्गीकृत)";
     if (matches.length === 0) return "अज्ञात";
-    
+
     matches.sort();
     return Array.from(new Set(matches)).join(", ");
   }
   // --- END OF PYTHON PORT ---
 
+  // --- HELPER: IMPROVED EXTRACTION ---
+  function extractSectionsAndLaws(cleanText: string) {
+    // Extract numbers 1-4 digits long
+    const numbers = new Set(
+      (cleanText.match(/\b\d{1,4}\b/g) || []).map(n => parseInt(n))
+    );
+
+    const laws = new Set<string>();
+    const low = cleanText.toLowerCase();
+
+    // Regex handles: बीएनएस, बी.एन.एस, बी0एन0एस0, BNS, B.N.S
+    if (/बी[0\. ]?एन[0\. ]?एस|b[0\. ]?n[0\. ]?s/i.test(cleanText)) {
+      laws.add("बीएनएस");
+    }
+
+    // Regex handles: भादवि, भा.द.वि, भा0द0वि0, IPC
+    if (/भा[0\. ]?द[0\. ]?वि|i[0\. ]?p[0\. ]?c/i.test(cleanText)) {
+      laws.add("भादवि");
+    }
+
+    // Support for additional Acts found in your data
+    if (cleanText.includes("डीपी") || low.includes("dp act")) {
+      laws.add("डीपी एक्ट");
+    }
+    if (cleanText.includes("पाक्सो") || low.includes("pocso")) {
+      laws.add("पाक्सो एक्ट");
+    }
+    if (cleanText.includes("गैगेंस्टर") || low.includes("gangster")) {
+      laws.add("गैगेंस्टर एक्ट");
+    }
+
+    return { numbers, laws };
+  }
+
+  // --- MAIN PROCESSOR ---
   async function processExcelFile(filename: string) {
     try {
+      processingJobs[filename] = { status: "processing", total: 0, done: 0 };
       // A. Get file from R2
       const getCommand = new GetObjectCommand({
         Bucket: process.env.R2_BUCKET_NAME,
@@ -196,57 +236,114 @@ const s3 = new S3Client({
       });
       const response = await s3.send(getCommand);
       const bodyContents = await response.Body?.transformToByteArray();
-      
-      // B. Parse Excel and Categorize
+
+      // B. Parse Excel
       const workbook = XLSX.read(bodyContents, { type: 'array' });
       const rowsToInsert: any[] = [];
 
       for (const sheetName of workbook.SheetNames) {
         const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-        rawData.forEach((row: any) => {
+
+        // 1. FILTER: Remove repeating headers, "ऋऋम्" junk, and empty rows (2737, etc.)
+        const filteredData = rawData.filter((row: any) => {
+          const keys = Object.keys(row);
+          const values = Object.values(row).filter(v => v !== null && v !== undefined && String(v).trim() !== "");
+
+          // Find the "धारा" value to check for header keywords
+          const dharaKey = keys.find(k => k.includes("धारा"));
+          const dharaVal = String(row[dharaKey || ""] || "").trim();
+
+          return (
+            values.length > 3 &&            // Row must have at least 4 filled columns
+            dharaVal !== "" &&              // Section cannot be empty
+            !dharaVal.includes("धारा") &&   // Skip repeated header rows
+            !dharaVal.includes("ऋऋम्")      // Skip encoding garbage rows
+          );
+        });
+
+        // 2. SORT: Ascending by "क्र0सं0"
+        filteredData.sort((a: any, b: any) => {
+          const snoKeyA = Object.keys(a).find(k => k.includes("सं0")) || "";
+          const snoKeyB = Object.keys(b).find(k => k.includes("सं0")) || "";
+
+          // Extract digits only (handles "1.", "०१", or "1 ")
+          const valA = parseInt(String(a[snoKeyA] || "99999").replace(/[^0-9]/g, '')) || 99999;
+          const valB = parseInt(String(b[snoKeyB] || "99999").replace(/[^0-9]/g, '')) || 99999;
+
+          return valA - valB;
+        });
+
+        // 3. PROCESS: Clean and Categorize
+        filteredData.forEach((row: any) => {
           let dharaVal = undefined;
+          // Identify the "धारा" column
           for (const k of Object.keys(row)) {
-             // Handle any trailing/leading spaces in column definitions and Kruti Dev garbage
-             let uniText = k;
-             try { uniText = krutiDevToUnicode(k); } catch (e) {}
-             
-             if (k.trim() === "धारा" || k.includes("धारा") || uniText.trim() === "धारा" || uniText.includes("धारा")) {
-                dharaVal = row[k];
-                break;
-             }
+            if (k.trim() === "धारा" || k.includes("धारा")) {
+              dharaVal = row[k];
+              break;
+            }
           }
 
-          if (dharaVal !== undefined) {
-            const cleanText = normalizeDharaText(dharaVal);
-            const { numbers, laws } = extractSectionsAndLaws(cleanText);
-            row["धारा_साफ"] = cleanText;
-            row["section_numbers"] = Array.from(numbers).sort((a,b)=>a-b).join(",");
-            row["law_hint"] = Array.from(laws).sort().join(",");
-            row["crime_category"] = detectCategory(numbers, laws);
-          }
-          
+          // Wipe old processed columns to avoid "Repeated Columns"
+          ["law_hint", "crime_category", "section_numbers", "धारा_साफ"].forEach(col => {
+            for (const k of Object.keys(row)) {
+              if (k.toLowerCase().trim() === col) delete row[k];
+            }
+          });
+
+          const cleanText = normalizeDharaText(dharaVal);
+          const { numbers, laws } = extractSectionsAndLaws(cleanText);
+
+
+          row["section_numbers"] = Array.from(numbers).sort((a, b) => a - b).join(",");
+
+          row["crime_category"] = detectCategory(numbers, laws);
+
           rowsToInsert.push({
             filename: filename,
-            data: { __sheet__: sheetName, ...row }, // Storing sheet name inside data payload
+            data: { __sheet__: sheetName, ...row },
             created_at: new Date(),
           });
         });
       }
 
-      // C. Insert into Supabase in chunks of 500 to avoid payload size limit
+      // C. Insert into Supabase in chunks
       const chunkSize = 500;
+      if (processingJobs[filename]) {
+        processingJobs[filename].status = "saving";
+        processingJobs[filename].total = rowsToInsert.length;
+      }
       for (let i = 0; i < rowsToInsert.length; i += chunkSize) {
         const chunk = rowsToInsert.slice(i, i + chunkSize);
         const { error } = await supabase.from('excel_rows').insert(chunk);
         if (error) throw error;
+        if (processingJobs[filename]) {
+          processingJobs[filename].done += chunk.length;
+        }
       }
-      
-      console.log(`✅ Finished processing ${filename}. ${rowsToInsert.length} rows saved.`);
-    } catch (error) {
-      console.error("❌ Processing failed:", error);
+
+      if (processingJobs[filename]) {
+        processingJobs[filename].status = "done";
+      }
+      console.log(`✅ Processed & Sorted: ${filename}. ${rowsToInsert.length} clean rows saved.`);
+    } catch (error: any) {
+      console.error("❌ Server-side processing failed:", error);
+      if (processingJobs[filename]) {
+        processingJobs[filename].status = "error";
+        processingJobs[filename].error = error.message;
+      }
     }
   }
   // --- 2. DATA RETRIEVAL ---
+  app.get("/api/status/:filename", (req, res) => {
+    const filename = decodeURIComponent(req.params.filename).trim();
+    const job = processingJobs[filename];
+    if (job) {
+      return res.json(job);
+    }
+    return res.json({ status: "unknown", total: 0, done: 0 });
+  });
+
   app.get("/api/data", async (req, res) => {
     try {
       // Check if variables are missing
@@ -269,14 +366,28 @@ const s3 = new S3Client({
   app.get("/api/data/:filename", async (req, res) => {
     try {
       const filename = decodeURIComponent(req.params.filename).trim();
-      const { data, error } = await supabase
-        .from("excel_rows")
-        .select("data")
-        .eq("filename", filename)
-        .limit(50000);
 
-      if (error) throw error;
-      const rows = (data || []).map((row: any) => row.data).filter(Boolean);
+      let allData: any[] = [];
+      let from = 0;
+      let step = 999;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from("excel_rows")
+          .select("data")
+          .eq("filename", filename)
+          .range(from, from + step);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allData = allData.concat(data);
+        if (data.length <= step) break; // Finished fetching
+
+        from += step + 1;
+      }
+
+      const rows = allData.map((row: any) => row.data).filter(Boolean);
       res.json(rows);
     } catch (error: any) {
       console.error("❌ ERROR IN /api/data/:filename GET:", error.message);
@@ -321,20 +432,25 @@ const s3 = new S3Client({
       // Auto-categorize if "धारा" is supplied in the DataEntry form
       let dharaVal = undefined;
       for (const k of Object.keys(payload)) {
-          let uniText = k;
-          try { uniText = krutiDevToUnicode(k); } catch (e) {}
-          if (k.trim() === "धारा" || k.includes("धारा") || uniText.trim() === "धारा" || uniText.includes("धारा")) {
-             dharaVal = payload[k];
-             break;
-          }
+        if (k.trim() === "धारा" || k.includes("धारा")) {
+          dharaVal = payload[k];
+          break;
+        }
       }
       if (dharaVal !== undefined && String(dharaVal).trim().length > 0) {
-         const cleanText = normalizeDharaText(dharaVal);
-         const { numbers, laws } = extractSectionsAndLaws(cleanText);
-         payload["धारा_साफ"] = cleanText;
-         payload["section_numbers"] = Array.from(numbers).sort((a,b)=>a-b).join(",");
-         payload["law_hint"] = Array.from(laws).sort().join(",");
-         payload["crime_category"] = detectCategory(numbers, laws);
+        const cleanText = normalizeDharaText(dharaVal);
+        const { numbers, laws } = extractSectionsAndLaws(cleanText);
+        for (const k of Object.keys(payload)) {
+          const lower = k.toLowerCase().trim();
+          if (lower === "law_hint" || lower === "crime_category" || lower === "section_numbers" || lower === "धारा_साफ") {
+            delete payload[k];
+          }
+        }
+
+        payload["धारा_साफ"] = cleanText;
+        payload["section_numbers"] = Array.from(numbers).sort((a, b) => a - b).join(",");
+        payload["law_hint"] = Array.from(laws).sort().join(",");
+        payload["crime_category"] = detectCategory(numbers, laws);
       }
 
       const { error } = await supabase.from("excel_rows").insert({
